@@ -1,0 +1,12 @@
+/**
+ * All of the CSS for your admin-specific functionality should be
+ * included in this file.
+ */
+.ovc-settings .ovc-status {
+	display: inline-block;
+	margin: 0 18px 8px 0;
+}
+
+.ovc-settings .form-table {
+	max-width: 980px;
+}
