@@ -1,114 +1,218 @@
-=== Plugin Name ===
-Contributors: (this should be a list of wordpress.org userid's)
-Donate link: https://infosoftbd.com/
-Tags: comments, spam
-Requires at least: 3.0.1
-Tested up to: 3.4
-Stable tag: 4.3
+=== Order Verify Call ===
+Contributors: infosoftbd
+Tags: woocommerce, order verification, ivr, phone call, fraud prevention
+Stable tag: 1.0.0
 License: GPLv2 or later
-License URI: http://www.gnu.org/licenses/gpl-2.0.html
+License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Here is a short description of the plugin.  This should be no more than 150 characters.  No markup here.
+Verify WooCommerce orders automatically with interactive NextGenSwitch voice calls.
 
 == Description ==
 
-This is the long description.  No limit, and you can use Markdown (as well as in the following sections).
+Order Verify Call helps WooCommerce stores confirm orders by calling the customer's billing phone number through NextGenSwitch.
 
-For backwards compatibility, if this section is missing, the full length of the short description will be used, and
-Markdown parsed.
+When an order enters one of your selected statuses, the plugin schedules a call and asks the customer to choose an action from their phone keypad:
 
-A few notes about the sections above:
+* Press 1 to confirm the order.
+* Press 2 to cancel the order.
+* Press 0 to speak with support, when a support number is configured.
 
-*   "Contributors" is a comma separated list of wp.org/wp-plugins.org usernames
-*   "Tags" is a comma separated list of tags that apply to the plugin
-*   "Requires at least" is the lowest version that the plugin will work on
-*   "Tested up to" is the highest version that you've *successfully used to test the plugin*. Note that it might work on
-higher versions... this is just the highest one you've verified.
-*   Stable tag should indicate the Subversion "tag" of the latest stable version, or "trunk," if you use `/trunk/` for
-stable.
+The result is saved on the WooCommerce order and added to its order notes. Customer cancellations automatically move the order to the Cancelled status. Confirmations are recorded without changing the current WooCommerce order status.
 
-    Note that the `readme.txt` of the stable tag is the one that is considered the defining one for the plugin, so
-if the `/trunk/readme.txt` file says that the stable tag is `4.3`, then it is `/tags/4.3/readme.txt` that'll be used
-for displaying information about the plugin.  In this situation, the only thing considered from the trunk `readme.txt`
-is the stable tag pointer.  Thus, if you develop in trunk, you can update the trunk `readme.txt` to reflect changes in
-your in-development version, without having that information incorrectly disclosed about the current stable version
-that lacks those changes -- as long as the trunk's `readme.txt` points to the correct stable tag.
+= Features =
 
-    If no stable tag is provided, it is assumed that trunk is stable, but you should specify "trunk" if that's where
-you put the stable version, in order to eliminate any doubt.
+* Automatically starts verification calls for selected WooCommerce order statuses.
+* Uses Action Scheduler when available, with WP-Cron as a fallback.
+* Supports custom MP3 or WAV prompts from the WordPress Media Library or a public URL.
+* Uses text-to-speech messages when custom audio is not provided.
+* Records queued, initiated, ringing, answered, confirmed, cancelled, transferred, no-input, no-answer, and failed results.
+* Adds call results and failures to WooCommerce order notes.
+* Displays the verification result and provider call ID on the order screen.
+* Provides a WooCommerce order action for sending or retrying a call manually.
+* Protects callback URLs with a unique, hashed token for each call.
+* Supports WooCommerce High-Performance Order Storage (HPOS).
+* Includes translation support through the `order-verify-call` text domain.
+
+= Requirements =
+
+* A working WordPress installation.
+* WooCommerce installed and active.
+* A NextGenSwitch account, API URL, API key, API secret, and caller ID/DID.
+* A publicly reachable WordPress REST API.
+* HTTPS is strongly recommended for the store, callback URLs, and audio files.
+* Working Action Scheduler or WP-Cron processing for automatic calls.
 
 == Installation ==
 
-This section describes how to install the plugin and get it working.
+1. Upload the `order-verify-call` directory to `/wp-content/plugins/`, or install the plugin ZIP from Plugins > Add New > Upload Plugin.
+2. Activate Order Verify Call from the WordPress Plugins screen.
+3. Make sure WooCommerce is installed and active.
+4. Open WooCommerce > Order Verify Call.
+5. Enter the NextGenSwitch API details and caller ID/DID.
+6. Select the WooCommerce statuses that should trigger a verification call.
+7. Optionally configure a support number and custom voice audio.
+8. Enable automatic calls and save the settings.
 
-e.g.
+== Configuration ==
 
-1. Upload `order-verify-call.php` to the `/wp-content/plugins/` directory
-1. Activate the plugin through the 'Plugins' menu in WordPress
-1. Place `<?php do_action('plugin_name_hook'); ?>` in your templates
+= NextGenSwitch connection =
+
+Configure these fields under WooCommerce > Order Verify Call:
+
+* NextGenSwitch API URL: The base URL of your NextGenSwitch installation. Do not include `/api/v1/call`.
+* API key: Sent to NextGenSwitch in the `X-Authorization` header.
+* API secret: Sent in the `X-Authorization-Secret` header. Leave the field blank after saving to keep the existing secret.
+* Caller ID / DID: The number used as the caller ID for outgoing verification calls.
+* Support number: An optional phone number or extension dialed when the customer presses 0.
+
+= Trigger statuses =
+
+Choose one or more WooCommerce order statuses. A call is queued the first time an order enters a selected status.
+
+By default, the plugin preselects Processing and On hold when no trigger settings have been saved. Automatic calling remains disabled until you enable it.
+
+= Voice audio =
+
+Each call response can use a custom MP3 or WAV file:
+
+* Order prompt
+* Confirmed
+* Cancelled
+* Transfer
+* Invalid key
+* No input
+
+Use Choose audio to select a file from the WordPress Media Library, or paste a public audio URL. When a field is blank, NextGenSwitch uses the plugin's text-to-speech message.
+
+The audio URLs must be publicly accessible to NextGenSwitch. Localhost URLs, private network addresses, protected media, and URLs blocked by a firewall will not work.
+
+== How It Works ==
+
+1. A WooCommerce order enters a configured trigger status.
+2. The plugin queues an asynchronous call request.
+3. NextGenSwitch calls the order's billing phone number.
+4. The customer hears the order prompt and presses 1, 2, or 0.
+5. NextGenSwitch sends the keypad result and call status to the plugin's REST endpoints.
+6. The plugin updates the verification result and adds an order note.
+
+The callback base URL is shown on the settings page and follows this format:
+
+`https://example.com/wp-json/order-verify-call/v1/`
+
+You normally do not need to register callback URLs manually because they are included in each NextGenSwitch call request.
+
+== Manual Calls and Retries ==
+
+To send or retry a verification call:
+
+1. Open the order in WooCommerce.
+2. Find the Order actions panel.
+3. Select Send/retry verification call.
+4. Apply the action.
+
+A manual retry forces a new call request even if the order was called previously. Review the order notes before retrying to avoid contacting the customer unnecessarily.
 
 == Frequently Asked Questions ==
 
-= A question that someone might have =
+= Does confirmation change the WooCommerce order status? =
 
-An answer to that question.
+No. Pressing 1 records the verification result as Confirmed and adds an order note, but keeps the current WooCommerce order status unchanged.
 
-= What about foo bar? =
+= What happens when the customer presses 2? =
 
-Answer to foo bar dilemma.
+The verification result is recorded as Cancelled and the WooCommerce order is moved to the Cancelled status.
 
-== Screenshots ==
+= What happens when the customer presses 0? =
 
-1. This screen shot description corresponds to screenshot-1.(png|jpg|jpeg|gif). Note that the screenshot is taken from
-the /assets directory or the directory that contains the stable readme.txt (tags or trunk). Screenshots in the /assets
-directory take precedence. For example, `/assets/screenshot-1.png` would win over `/tags/4.3/screenshot-1.png`
-(or jpg, jpeg, gif).
-2. This is the second screen shot
+If a support number is configured, the call is transferred to that number and the verification result is recorded as Transferred. Without a support number, 0 is treated as an invalid selection.
+
+= Can I use the plugin without custom audio files? =
+
+Yes. Leave the audio fields blank to use the built-in text-to-speech messages.
+
+= Why was an automatic call not sent? =
+
+Check the following:
+
+* Automatic calls are enabled.
+* The order entered a selected trigger status after the plugin was configured.
+* The order has a valid billing phone number.
+* The API URL, key, secret, and caller ID/DID are complete.
+* Action Scheduler or WP-Cron is processing queued jobs.
+* The order was not already marked as called.
+
+You can use the manual order action to send or retry the call.
+
+= Why are callbacks or keypad selections failing? =
+
+Confirm that the WordPress REST API is publicly reachable and that security plugins, a web application firewall, basic authentication, or maintenance mode are not blocking `/wp-json/order-verify-call/v1/`.
+
+= Where can I see call errors? =
+
+Open the WooCommerce order. Failed requests are stored as order notes, and the current verification result appears below the billing details.
+
+== Troubleshooting ==
+
+= Test the setup =
+
+1. Save the NextGenSwitch settings with automatic calls disabled.
+2. Create a test order with a phone number you control.
+3. Open the order and run Send/retry verification call from Order actions.
+4. Check the order notes and the Voice verification field.
+5. Test all configured keypad actions before enabling automatic calls for live orders.
+
+= Scheduled actions =
+
+WooCommerce normally processes calls through Action Scheduler. You can inspect jobs under WooCommerce > Status > Scheduled Actions and search for the `order_verify_call_place_call` hook.
+
+If Action Scheduler is unavailable, the plugin uses WP-Cron. A low-traffic site may need a real server cron job to run WordPress scheduled events reliably.
+
+== Privacy and External Services ==
+
+This plugin sends data to the configured NextGenSwitch service to place verification calls. The request includes:
+
+* The customer's WooCommerce billing phone number.
+* The configured caller ID/DID.
+* A callback URL containing the order ID and a single-call security token.
+* XML instructions containing the voice prompt or public audio URLs.
+
+Call status and keypad responses are sent back to the site's WordPress REST API and stored as WooCommerce order metadata and order notes.
+
+Store owners are responsible for configuring NextGenSwitch, reviewing its privacy terms, informing customers where required, and complying with applicable consent, telemarketing, privacy, and call-recording laws.
+
+== Developer Notes ==
+
+= REST endpoints =
+
+The plugin registers two authenticated callback endpoints:
+
+* `POST /wp-json/order-verify-call/v1/dtmf/{order_id}`
+* `POST /wp-json/order-verify-call/v1/status/{order_id}`
+
+Each callback must include the unique `token` generated for that call. Only a password hash of the token is stored with the order.
+
+= Request timeout filter =
+
+The NextGenSwitch API request timeout defaults to 45 seconds and can be changed with this filter:
+
+`order_verify_call_request_timeout`
+
+Example:
+
+`add_filter( 'order_verify_call_request_timeout', function () { return 60; } );`
+
+The plugin enforces a minimum timeout of 15 seconds.
+
+== Uninstallation ==
+
+Deleting the plugin from the WordPress Plugins screen removes the `order_verify_call_settings` option. Existing verification metadata and notes attached to WooCommerce orders are retained.
 
 == Changelog ==
 
-= 1.0 =
-* A change since the previous version.
-* Another change.
+= 1.0.0 =
 
-= 0.5 =
-* List versions from most recent at top to oldest at bottom.
-
-== Upgrade Notice ==
-
-= 1.0 =
-Upgrade notices describe the reason a user should upgrade.  No more than 300 characters.
-
-= 0.5 =
-This version fixes a security related bug.  Upgrade immediately.
-
-== Arbitrary section ==
-
-You may provide arbitrary sections, in the same format as the ones above.  This may be of use for extremely complicated
-plugins where more information needs to be conveyed that doesn't fit into the categories of "description" or
-"installation."  Arbitrary sections will be shown below the built-in sections outlined above.
-
-== A brief Markdown Example ==
-
-Ordered list:
-
-1. Some feature
-1. Another feature
-1. Something else about the plugin
-
-Unordered list:
-
-* something
-* something else
-* third thing
-
-Here's a link to [WordPress](http://wordpress.org/ "Your favorite software") and one to [Markdown's Syntax Documentation][markdown syntax].
-Titles are optional, naturally.
-
-[markdown syntax]: http://daringfireball.net/projects/markdown/syntax
-            "Markdown is what the parser uses to process much of the readme file"
-
-Markdown uses email style notation for blockquotes and I've been told:
-> Asterisks for *emphasis*. Double it up  for **strong**.
-
-`<?php code(); // goes in backticks ?>`
+* Initial release.
+* Added automatic WooCommerce order verification calls through NextGenSwitch.
+* Added keypad confirmation, cancellation, and support transfer actions.
+* Added custom audio prompts with text-to-speech fallbacks.
+* Added call status tracking, order notes, manual retries, and HPOS compatibility.
