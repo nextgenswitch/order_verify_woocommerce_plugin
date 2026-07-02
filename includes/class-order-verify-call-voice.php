@@ -139,7 +139,7 @@ class Order_Verify_Call_Voice {
 			$xml = $this->response_xml( $settings, 'audio_cancelled', __( 'Your order has been cancelled.', 'order-verify-call' ) );
 		} elseif ( '0' === $digit && ! empty( $settings['support_number'] ) ) {
 			$this->update_verification( $order, 'transferred', __( 'Customer requested a support transfer by pressing 0.', 'order-verify-call' ) );
-			$xml = $this->xml_document( $this->voice_node( $settings, 'audio_transferred', __( 'Please hold while we transfer your call.', 'order-verify-call' ) ) . '<dial>' . esc_xml( $settings['support_number'] ) . '</dial>' );
+			$xml = $this->xml_document( $this->voice_node( $settings, 'audio_transferred', __( 'Please hold while we transfer your call.', 'order-verify-call' ) ) . '<Dial>' . esc_xml( $settings['support_number'] ) . '</Dial>' );
 		} elseif ( '' === $digit ) {
 			$order->update_meta_data( '_ovc_verification_status', 'no_input' );
 			$order->add_order_note( __( 'Verification call ended because no keypad selection was received.', 'order-verify-call' ) );
@@ -147,7 +147,7 @@ class Order_Verify_Call_Voice {
 			$xml = $this->response_xml( $settings, 'audio_no_input', __( 'We did not receive a selection. Goodbye.', 'order-verify-call' ) );
 		} else {
 			$action = add_query_arg( 'token', (string) $request->get_param( 'token' ), rest_url( 'order-verify-call/v1/dtmf/' . $order->get_id() ) );
-			$xml    = $this->xml_document( '<gather action="' . esc_url( $action ) . '" method="POST" numDigits="1" timeout="15" actionOnEmptyResult="true">' . $this->voice_node( $settings, 'audio_invalid', __( 'Invalid selection. Press 1 to confirm, 2 to cancel, or 0 for support.', 'order-verify-call' ) ) . '</gather>' );
+			$xml    = $this->xml_document( '<Gather action="' . esc_url( $action ) . '" method="POST" numDigits="1" timeout="15" actionOnEmptyResult="true">' . $this->voice_node( $settings, 'audio_invalid', __( 'Invalid selection. Press 1 to confirm, 2 to cancel, or 0 for support.', 'order-verify-call' ) ) . '</Gather>' );
 		}
 		/*
 		// Log the response XML for debugging purposes without exposing the webhook token.
@@ -215,15 +215,75 @@ class Order_Verify_Call_Voice {
 		$this->place_call( $order->get_id(), true );
 	}
 
-	public function display_order_details( $order ) {
-		$status = $order->get_meta( '_ovc_verification_status' );
-		if ( ! $status ) {
+	public function handle_manual_call_request() {
+		$order_id = isset( $_GET['order_id'] ) ? absint( wp_unslash( $_GET['order_id'] ) ) : 0;
+		$redirect = remove_query_arg( 'ovc_manual_call', wp_get_referer() ? wp_get_referer() : admin_url( 'edit.php?post_type=shop_order' ) );
+
+		if ( ! $order_id || ! wp_verify_nonce( isset( $_GET['_wpnonce'] ) ? sanitize_text_field( wp_unslash( $_GET['_wpnonce'] ) ) : '', 'ovc_manual_call_' . $order_id ) ) {
+			wp_safe_redirect( add_query_arg( 'ovc_manual_call', 'invalid', $redirect ) );
+			exit;
+		}
+
+		$order = wc_get_order( $order_id );
+		if ( ! $order ) {
+			wp_safe_redirect( add_query_arg( 'ovc_manual_call', 'missing', $redirect ) );
+			exit;
+		}
+
+		if ( ! current_user_can( 'edit_shop_order', $order_id ) && ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_safe_redirect( add_query_arg( 'ovc_manual_call', 'denied', $redirect ) );
+			exit;
+		}
+
+		$result = $this->place_call( $order_id, true );
+		$notice = is_wp_error( $result ) ? 'failed' : 'sent';
+
+		wp_safe_redirect( add_query_arg( 'ovc_manual_call', $notice, $redirect ) );
+		exit;
+	}
+
+	public function display_manual_call_notice() {
+		if ( empty( $_GET['ovc_manual_call'] ) ) {
 			return;
 		}
-		echo '<p class="form-field form-field-wide"><strong>' . esc_html__( 'Voice verification:', 'order-verify-call' ) . '</strong> ' . esc_html( ucwords( str_replace( '_', ' ', $status ) ) );
+
+		$notice = sanitize_key( wp_unslash( $_GET['ovc_manual_call'] ) );
+		if ( 'sent' === $notice ) {
+			echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Verification call request sent.', 'order-verify-call' ) . '</p></div>';
+		} elseif ( 'failed' === $notice ) {
+			echo '<div class="notice notice-error is-dismissible"><p>' . esc_html__( 'Verification call request failed. Check the order notes for details.', 'order-verify-call' ) . '</p></div>';
+		} elseif ( 'denied' === $notice ) {
+			echo '<div class="notice notice-error is-dismissible"><p>' . esc_html__( 'You do not have permission to send verification calls for this order.', 'order-verify-call' ) . '</p></div>';
+		} elseif ( in_array( $notice, array( 'invalid', 'missing' ), true ) ) {
+			echo '<div class="notice notice-error is-dismissible"><p>' . esc_html__( 'The verification call request could not be processed.', 'order-verify-call' ) . '</p></div>';
+		}
+	}
+
+	public function display_order_details( $order ) {
+		$status = $order->get_meta( '_ovc_verification_status' );
+		$label  = $status ? ucwords( str_replace( '_', ' ', $status ) ) : __( 'Not sent', 'order-verify-call' );
+
+		echo '<p class="form-field form-field-wide"><strong>' . esc_html__( 'Voice verification:', 'order-verify-call' ) . '</strong> ' . esc_html( $label );
 		$call_id = $order->get_meta( '_ovc_call_id' );
 		if ( $call_id ) {
 			echo '<br><small>' . esc_html__( 'Call ID:', 'order-verify-call' ) . ' ' . esc_html( $call_id ) . '</small>';
+		}
+		$last_error = $order->get_meta( '_ovc_last_error' );
+		if ( $last_error ) {
+			echo '<br><small>' . esc_html__( 'Last error:', 'order-verify-call' ) . ' ' . esc_html( $last_error ) . '</small>';
+		}
+		if ( current_user_can( 'edit_shop_order', $order->get_id() ) || current_user_can( 'manage_woocommerce' ) ) {
+			$url = wp_nonce_url(
+				add_query_arg(
+					array(
+						'action'   => 'ovc_manual_verification_call',
+						'order_id' => $order->get_id(),
+					),
+					admin_url( 'admin-post.php' )
+				),
+				'ovc_manual_call_' . $order->get_id()
+			);
+			echo '<br><a class="button" href="' . esc_url( $url ) . '">' . esc_html__( 'Send verification call', 'order-verify-call' ) . '</a>';
 		}
 		echo '</p>';
 	}
@@ -242,18 +302,18 @@ class Order_Verify_Call_Voice {
 
 	private function build_initial_xml( $dtmf_url, $settings ) {
 		$prompt = __( 'Press 1 to confirm your order, press 2 to cancel, or press 0 to speak with support.', 'order-verify-call' );
-		return $this->xml_document( '<gather action="' . esc_url( $dtmf_url ) . '" method="POST" numDigits="1" timeout="15" actionOnEmptyResult="true">' . $this->voice_node( $settings, 'audio_prompt', $prompt ) . '</gather>' );
+		return $this->xml_document( '<Gather action="' . esc_url( $dtmf_url ) . '" method="POST" numDigits="1" timeout="15" actionOnEmptyResult="true">' . $this->voice_node( $settings, 'audio_prompt', $prompt ) . '</Gather>' );
 	}
 
 	private function response_xml( $settings, $audio_key, $fallback ) {
 		return $this->xml_document( $this->voice_node( $settings, $audio_key, $fallback ) );
 	}
 	private function voice_node( $settings, $audio_key, $fallback ) {
-		return ! empty( $settings[ $audio_key ] ) ? '<play>' . esc_xml( $settings[ $audio_key ] ) . '</play>' : '<say>' . esc_xml( $fallback ) . '</say>';
+		return ! empty( $settings[ $audio_key ] ) ? '<Play>' . esc_xml( $settings[ $audio_key ] ) . '</Play>' : '<Say>' . esc_xml( $fallback ) . '</Say>';
 	}
 
 	private function xml_document( $content ) {
-		return '<?xml version="1.0" encoding="UTF-8"?><response>' . $content . '</response>';
+		return '<?xml version="1.0" encoding="UTF-8"?><Response>' . $content . '</Response>';
 	}
 
 	private function update_verification( $order, $status, $note ) {

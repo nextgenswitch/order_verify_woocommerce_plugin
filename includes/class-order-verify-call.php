@@ -183,6 +183,8 @@ class Order_Verify_Call {
 		$this->loader->add_filter( 'rest_pre_serve_request', $voice, 'serve_xml_response', 10, 4 );
 		$this->loader->add_filter( 'woocommerce_order_actions', $voice, 'add_order_action' );
 		$this->loader->add_action( 'woocommerce_order_action_ovc_retry_verification', $voice, 'run_order_action' );
+		$this->loader->add_action( 'admin_post_ovc_manual_verification_call', $voice, 'handle_manual_call_request' );
+		$this->loader->add_action( 'admin_notices', $voice, 'display_manual_call_notice' );
 		$this->loader->add_action( 'woocommerce_admin_order_data_after_billing_address', $voice, 'display_order_details' );
 
 	}
